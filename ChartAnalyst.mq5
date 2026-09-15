@@ -1,187 +1,196 @@
 //+------------------------------------------------------------------+
 //|                                             ChartAnalyst.mq5     |
-//|                    Super Chart Analyst - Version 1               |
-//|                         NO AUTO TRADING                           |
+//|                 SUPER CHART ANALYST - NO AUTO TRADE              |
 //+------------------------------------------------------------------+
 #property copyright "Chart Analyst"
-#property version   "1.00"
-#property description "MT5 Chart Analyst - Structure Based"
+#property version   "2.00"
+#property description "Market structure analysis only"
 #property description "NO AUTO TRADING"
 
-#property indicator_chart_window
-#property indicator_plots 0
+input int LookbackBars = 50;
+input double MinimumRR = 1.5;
 
-//--- Input
-input int    LookbackBars      = 50;
-input int    SwingStrength     = 3;
-input double MinimumRR         = 1.5;
+string Bias = "NEUTRAL";
+string Signal = "NO TRADE";
 
-//--- Analysis variables
-string MarketBias = "NEUTRAL";
-string Signal     = "NO TRADE";
+double BuyScore = 0;
+double SellScore = 0;
 
-double EntryPrice = 0.0;
-double StopLoss   = 0.0;
-double TakeProfit = 0.0;
-double BuyScore   = 0.0;
-double SellScore  = 0.0;
+double Entry = 0;
+double SL = 0;
+double TP = 0;
 
 //+------------------------------------------------------------------+
-//| Expert initialization                                            |
+//| Initialization                                                   |
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   Print("SUPER CHART ANALYST started.");
-   Print("AUTO TRADING: DISABLED");
-
    CreatePanel();
+
+   Print("SUPER CHART ANALYST ACTIVE");
+   Print("AUTO TRADING: DISABLED");
 
    return(INIT_SUCCEEDED);
 }
 
 //+------------------------------------------------------------------+
-//| Expert deinitialization                                          |
-//+------------------------------------------------------------------+
-void OnDeinit(const int reason)
-{
-   ObjectsDeleteAll(0, "SCA_");
-}
-
-//+------------------------------------------------------------------+
-//| Expert tick function                                             |
+//| Main analysis                                                    |
 //+------------------------------------------------------------------+
 void OnTick()
 {
    AnalyzeMarket();
    UpdatePanel();
-
-   ChartRedraw();
 }
 
 //+------------------------------------------------------------------+
-//| Main market analysis                                             |
+//| Market analysis                                                  |
 //+------------------------------------------------------------------+
 void AnalyzeMarket()
 {
-   MqlRates rates[];
+   MqlRates price[];
 
-   ArraySetAsSeries(rates, true);
+   ArraySetAsSeries(price,true);
 
-   int copied = CopyRates(_Symbol, _Period, 0, LookbackBars, rates);
+   int bars = CopyRates(_Symbol,_Period,0,LookbackBars,price);
 
-   if(copied < 20)
+   if(bars < 20)
       return;
 
-   //--- Reset
-   BuyScore  = 0;
+   BuyScore = 0;
    SellScore = 0;
 
-   EntryPrice = 0;
-   StopLoss   = 0;
-   TakeProfit = 0;
+   Entry = 0;
+   SL = 0;
+   TP = 0;
 
-   //--- Current price
-   double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double recentHigh = price[1].high;
+   double recentLow  = price[1].low;
 
-   //--- Simple structure analysis
-   double recentHigh = rates[1].high;
-   double recentLow  = rates[1].low;
+   double previousHigh = price[6].high;
+   double previousLow  = price[6].low;
 
-   double previousHigh = rates[6].high;
-   double previousLow  = rates[6].low;
-
-   // Find recent high / low
-   for(int i = 1; i < 10; i++)
+   // Find recent structure
+   for(int i=1;i<10;i++)
    {
-      if(rates[i].high > recentHigh)
-         recentHigh = rates[i].high;
+      if(price[i].high > recentHigh)
+         recentHigh = price[i].high;
 
-      if(rates[i].low < recentLow)
-         recentLow = rates[i].low;
+      if(price[i].low < recentLow)
+         recentLow = price[i].low;
    }
 
-   for(int i = 6; i < 15; i++)
+   for(int i=6;i<15;i++)
    {
-      if(rates[i].high > previousHigh)
-         previousHigh = rates[i].high;
+      if(price[i].high > previousHigh)
+         previousHigh = price[i].high;
 
-      if(rates[i].low < previousLow)
-         previousLow = rates[i].low;
+      if(price[i].low < previousLow)
+         previousLow = price[i].low;
    }
 
-   //--- Bullish structure
-   if(recentHigh > previousHigh && recentLow > previousLow)
+   //==============================================================
+   // BULLISH STRUCTURE
+   //==============================================================
+
+   if(recentHigh > previousHigh &&
+      recentLow > previousLow)
    {
-      MarketBias = "BULLISH";
+      Bias = "BULLISH";
 
       BuyScore += 60;
    }
-   //--- Bearish structure
-   else if(recentHigh < previousHigh && recentLow < previousLow)
+
+   //==============================================================
+   // BEARISH STRUCTURE
+   //==============================================================
+
+   else if(recentHigh < previousHigh &&
+           recentLow < previousLow)
    {
-      MarketBias = "BEARISH";
+      Bias = "BEARISH";
 
       SellScore += 60;
    }
+
    else
    {
-      MarketBias = "RANGING";
+      Bias = "RANGING";
    }
 
-   //--- Candle momentum
-   double lastOpen  = rates[1].open;
-   double lastClose = rates[1].close;
+   //==============================================================
+   // CANDLE MOMENTUM
+   //==============================================================
 
-   if(lastClose > lastOpen)
+   if(price[1].close > price[1].open)
       BuyScore += 20;
 
-   if(lastClose < lastOpen)
+   if(price[1].close < price[1].open)
       SellScore += 20;
 
-   //--- Previous candle confirmation
-   double prevOpen  = rates[2].open;
-   double prevClose = rates[2].close;
+   //==============================================================
+   // TWO CANDLE CONFIRMATION
+   //==============================================================
 
-   if(lastClose > lastOpen && prevClose > prevOpen)
+   if(price[1].close > price[1].open &&
+      price[2].close > price[2].open)
+   {
       BuyScore += 20;
+   }
 
-   if(lastClose < lastOpen && prevClose < prevOpen)
+   if(price[1].close < price[1].open &&
+      price[2].close < price[2].open)
+   {
       SellScore += 20;
+   }
 
-   //--- Limit score
    if(BuyScore > 100)
       BuyScore = 100;
 
    if(SellScore > 100)
       SellScore = 100;
 
-   //--- Determine signal
-   if(BuyScore >= 70 && BuyScore > SellScore)
+   //==============================================================
+   // BUY SIGNAL
+   //==============================================================
+
+   if(BuyScore >= 70 &&
+      BuyScore > SellScore)
    {
       Signal = "BUY";
 
-      EntryPrice = price;
+      Entry = SymbolInfoDouble(_Symbol,SYMBOL_BID);
 
-      StopLoss = recentLow;
+      SL = recentLow;
 
-      double risk = EntryPrice - StopLoss;
+      double risk = Entry - SL;
 
       if(risk > 0)
-         TakeProfit = EntryPrice + (risk * MinimumRR);
+         TP = Entry + (risk * MinimumRR);
    }
-   else if(SellScore >= 70 && SellScore > BuyScore)
+
+   //==============================================================
+   // SELL SIGNAL
+   //==============================================================
+
+   else if(SellScore >= 70 &&
+           SellScore > BuyScore)
    {
       Signal = "SELL";
 
-      EntryPrice = price;
+      Entry = SymbolInfoDouble(_Symbol,SYMBOL_BID);
 
-      StopLoss = recentHigh;
+      SL = recentHigh;
 
-      double risk = StopLoss - EntryPrice;
+      double risk = SL - Entry;
 
       if(risk > 0)
-         TakeProfit = EntryPrice - (risk * MinimumRR);
+         TP = Entry - (risk * MinimumRR);
    }
+
+   //==============================================================
+   // NO TRADE
+   //==============================================================
+
    else
    {
       Signal = "NO TRADE";
@@ -189,68 +198,141 @@ void AnalyzeMarket()
 }
 
 //+------------------------------------------------------------------+
-//| Create information panel                                         |
+//| Create panel                                                     |
 //+------------------------------------------------------------------+
+
 void CreatePanel()
 {
-   string name = "SCA_PANEL";
+   string box = "SCA_BOX";
 
-   ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+   ObjectCreate(0,
+                box,
+                OBJ_RECTANGLE_LABEL,
+                0,
+                0,
+                0);
 
-   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 10);
-   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 20);
-   ObjectSetInteger(0, name, OBJPROP_XSIZE, 280);
-   ObjectSetInteger(0, name, OBJPROP_YSIZE, 300);
+   ObjectSetInteger(0,
+                    box,
+                    OBJPROP_CORNER,
+                    CORNER_LEFT_UPPER);
 
-   ObjectSetInteger(0, name, OBJPROP_BGCOLOR, clrBlack);
-   ObjectSetInteger(0, name, OBJPROP_COLOR, clrWhite);
-   ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+   ObjectSetInteger(0,
+                    box,
+                    OBJPROP_XDISTANCE,
+                    10);
+
+   ObjectSetInteger(0,
+                    box,
+                    OBJPROP_YDISTANCE,
+                    20);
+
+   ObjectSetInteger(0,
+                    box,
+                    OBJPROP_XSIZE,
+                    300);
+
+   ObjectSetInteger(0,
+                    box,
+                    OBJPROP_YSIZE,
+                    320);
+
+   ObjectSetInteger(0,
+                    box,
+                    OBJPROP_BGCOLOR,
+                    clrBlack);
 }
 
 //+------------------------------------------------------------------+
-//| Update panel                                                     |
+//| Update information panel                                         |
 //+------------------------------------------------------------------+
+
 void UpdatePanel()
 {
    string name = "SCA_TEXT";
 
-   if(ObjectFind(0, name) < 0)
+   if(ObjectFind(0,name) < 0)
    {
-      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+      ObjectCreate(0,
+                   name,
+                   OBJ_LABEL,
+                   0,
+                   0,
+                   0);
 
-      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, 25);
-      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, 35);
+      ObjectSetInteger(0,
+                       name,
+                       OBJPROP_CORNER,
+                       CORNER_LEFT_UPPER);
 
-      ObjectSetInteger(0, name, OBJPROP_COLOR, clrWhite);
-      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 10);
+      ObjectSetInteger(0,
+                       name,
+                       OBJPROP_XDISTANCE,
+                       25);
+
+      ObjectSetInteger(0,
+                       name,
+                       OBJPROP_YDISTANCE,
+                       35);
+
+      ObjectSetInteger(0,
+                       name,
+                       OBJPROP_COLOR,
+                       clrWhite);
+
+      ObjectSetInteger(0,
+                       name,
+                       OBJPROP_FONTSIZE,
+                       10);
    }
-
-   string timeframe = EnumToString(_Period);
 
    string text = "";
 
    text += "SUPER CHART ANALYST\n";
    text += "============================\n";
-   text += "Symbol      : " + _Symbol + "\n";
-   text += "Timeframe   : " + timeframe + "\n";
-   text += "Auto Trade  : DISABLED\n";
+
+   text += "Symbol    : " + _Symbol + "\n";
+
+   text += "Timeframe : " +
+           EnumToString(_Period) + "\n";
+
+   text += "Auto Trade: DISABLED\n";
+
    text += "----------------------------\n";
-   text += "Market Bias : " + MarketBias + "\n";
+
+   text += "BIAS      : " + Bias + "\n";
+
+   text += "BUY       : " +
+           DoubleToString(BuyScore,0) +
+           "%\n";
+
+   text += "SELL      : " +
+           DoubleToString(SellScore,0) +
+           "%\n";
+
    text += "----------------------------\n";
-   text += "BUY Score   : " + DoubleToString(BuyScore, 0) + "%\n";
-   text += "SELL Score  : " + DoubleToString(SellScore, 0) + "%\n";
-   text += "----------------------------\n";
-   text += "SIGNAL      : " + Signal + "\n";
+
+   text += "SIGNAL    : " + Signal + "\n";
+
    text += "----------------------------\n";
 
    if(Signal != "NO TRADE")
    {
-      text += "Entry : " + DoubleToString(EntryPrice, _Digits) + "\n";
-      text += "SL    : " + DoubleToString(StopLoss, _Digits) + "\n";
-      text += "TP    : " + DoubleToString(TakeProfit, _Digits) + "\n";
-      text += "R:R   : 1:" + DoubleToString(MinimumRR, 1) + "\n";
+      text += "ENTRY : " +
+              DoubleToString(Entry,_Digits) +
+              "\n";
+
+      text += "SL    : " +
+              DoubleToString(SL,_Digits) +
+              "\n";
+
+      text += "TP    : " +
+              DoubleToString(TP,_Digits) +
+              "\n";
+
+      text += "R:R   : 1:" +
+              DoubleToString(MinimumRR,1) +
+              "\n";
    }
    else
    {
@@ -259,6 +341,12 @@ void UpdatePanel()
 
    text += "============================";
 
-   ObjectSetString(0, name, OBJPROP_TEXT, text);
+   ObjectSetString(0,
+                   name,
+                   OBJPROP_TEXT,
+                   text);
+
+   ChartRedraw();
 }
+
 //+------------------------------------------------------------------+
